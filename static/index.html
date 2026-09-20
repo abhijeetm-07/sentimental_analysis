@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EmotionAI — Emotion Classification</title>
+  <meta name="description" content="Classify text emotion using a Bidirectional GRU neural network trained on the dair-ai/emotion dataset." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Navbar -->
+  <header class="navbar">
+    <div class="container nav-inner">
+      <a href="#" class="nav-brand">
+        <span class="brand-mark">E</span>
+        <span class="brand-name">EmotionAI</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Main">
+        <a href="#analyzer" class="nav-link">Analyze</a>
+        <a href="#how-it-works" class="nav-link">How It Works</a>
+        <a href="#model" class="nav-link">Model</a>
+      </nav>
+
+      <div class="nav-status" id="healthBadge">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-label" id="statusText">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container hero-inner">
+        <p class="overline">Emotion Classification</p>
+        <h1 class="hero-heading">Understand what your text conveys.</h1>
+        <p class="hero-sub">A Bidirectional GRU model trained on 16 000 labeled sentences classifying text into six emotions.</p>
+        <div class="hero-meta">
+          <span class="chip">BiGRU</span>
+          <span class="chip">6 classes</span>
+          <span class="chip">~92 % test accuracy</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Analyzer -->
+    <section class="section" id="analyzer">
+      <div class="container narrow">
+        <div class="card analyzer-card">
+          <h2 class="card-heading">Analyze text</h2>
+          <p class="card-desc">Type or paste a sentence. The model returns a probability distribution across six emotions.</p>
+
+          <div class="input-group">
+            <label for="textInput" class="sr-only">Text to analyze</label>
+            <textarea
+              id="textInput"
+              class="textarea"
+              placeholder="e.g. After months of hard work, I finally achieved something I had been dreaming about…"
+              rows="4"
+              maxlength="2000"
+              aria-describedby="charCount validationMsg"
+            ></textarea>
+            <div class="input-footer">
+              <span id="validationMsg" class="validation" role="alert"></span>
+              <div class="input-meta">
+                <button type="button" id="clearBtn" class="btn-ghost btn-sm">Clear</button>
+                <span id="charCount" class="char-count">0 / 2000</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="examples">
+            <span class="examples-label">Examples</span>
+            <div class="pill-row">
+              <button class="pill" data-emotion="joy">Joy</button>
+              <button class="pill" data-emotion="sadness">Sadness</button>
+              <button class="pill" data-emotion="love">Love</button>
+              <button class="pill" data-emotion="anger">Anger</button>
+              <button class="pill" data-emotion="fear">Fear</button>
+              <button class="pill" data-emotion="surprise">Surprise</button>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button type="button" id="analyzeBtn" class="btn-primary">
+              <span class="btn-label">Analyze</span>
+              <svg class="btn-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" stroke-dasharray="31.4 31.4" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Error -->
+        <div id="errorCard" class="card error-card" style="display:none" role="alert">
+          <div class="error-body">
+            <p class="error-title" id="errorTitle">Unable to analyze.</p>
+            <p class="error-desc" id="errorDesc">Make sure the FastAPI server is running.</p>
+          </div>
+          <button type="button" id="dismissError" class="btn-ghost btn-sm" aria-label="Dismiss">✕</button>
+        </div>
+
+        <!-- Results -->
+        <section id="resultsSection" class="results" style="display:none" aria-live="polite">
+          <div class="card results-card">
+
+            <div class="result-top">
+              <div class="result-emotion" id="predictionHighlight">
+                <span class="result-emoji" id="resultEmoji">😄</span>
+                <div>
+                  <p class="result-label">Predicted emotion</p>
+                  <h3 class="result-name" id="resultEmotionName">JOY</h3>
+                </div>
+              </div>
+              <div class="result-confidence">
+                <p class="result-label">Confidence</p>
+                <p class="result-pct" id="resultConfidence">0.0 %</p>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Probability bars -->
+            <h4 class="sub-heading">Distribution</h4>
+            <div class="prob-list" id="probabilitiesList"></div>
+
+            <div class="divider"></div>
+
+            <!-- Interpretation -->
+            <div class="interp" id="interpretationCard">
+              <h4 class="sub-heading">Interpretation</h4>
+              <p class="interp-text" id="interpretationText"></p>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Recap -->
+            <h4 class="sub-heading">Analyzed text</h4>
+            <blockquote class="recap" id="recapText">"…"</blockquote>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="section" id="how-it-works">
+      <div class="container">
+        <h2 class="section-heading">How it works</h2>
+        <div class="steps">
+          <div class="step">
+            <span class="step-num">1</span>
+            <h3 class="step-title">Input</h3>
+            <p class="step-desc">Your text is sent to the FastAPI inference endpoint.</p>
+          </div>
+          <div class="step">
+            <span class="step-num">2</span>
+            <h3 class="step-title">Preprocessing</h3>
+            <p class="step-desc">Lowercased, cleaned, tokenized into integers, and padded to 50 tokens.</p>
+          </div>
+          <div class="step">
+            <span class="step-num">3</span>
+            <h3 class="step-title">BiGRU inference</h3>
+            <p class="step-desc">A two-layer bidirectional GRU reads the sequence forwards and backwards.</p>
+          </div>
+          <div class="step">
+            <span class="step-num">4</span>
+            <h3 class="step-title">Prediction</h3>
+            <p class="step-desc">Softmax produces a probability for each of the six emotion classes.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Emotions -->
+    <section class="section" id="emotions">
+      <div class="container">
+        <h2 class="section-heading">Six emotions</h2>
+        <div class="emo-grid">
+          <div class="emo-item"><span class="emo-icon">😄</span><h3>Joy</h3><p>Happiness, excitement, satisfaction.</p></div>
+          <div class="emo-item"><span class="emo-icon">😢</span><h3>Sadness</h3><p>Grief, sorrow, disappointment.</p></div>
+          <div class="emo-item"><span class="emo-icon">❤️</span><h3>Love</h3><p>Affection, tenderness, warmth.</p></div>
+          <div class="emo-item"><span class="emo-icon">😠</span><h3>Anger</h3><p>Frustration, outrage, resentment.</p></div>
+          <div class="emo-item"><span class="emo-icon">😨</span><h3>Fear</h3><p>Anxiety, dread, apprehension.</p></div>
+          <div class="emo-item"><span class="emo-icon">😲</span><h3>Surprise</h3><p>Astonishment, shock, wonder.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Model -->
+    <section class="section" id="model">
+      <div class="container narrow">
+        <h2 class="section-heading">Model details</h2>
+        <div class="card spec-card">
+          <table class="spec-table">
+            <tbody>
+              <tr><th>Architecture</th><td>Bidirectional GRU</td></tr>
+              <tr><th>Task</th><td>Multi-class classification (6)</td></tr>
+              <tr><th>Sequence length</th><td>50 tokens</td></tr>
+              <tr><th>Embedding</th><td>300-d dense vectors</td></tr>
+              <tr><th>Vocabulary</th><td>10 000 tokens</td></tr>
+              <tr><th>Framework</th><td>Keras / TensorFlow</td></tr>
+              <tr><th>Backend</th><td>FastAPI</td></tr>
+              <tr><th>Test accuracy</th><td>~92 %</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <span class="footer-brand">EmotionAI</span>
+      <span class="footer-sep">·</span>
+      <span class="footer-text">BiGRU + FastAPI</span>
+    </div>
+  </footer>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
