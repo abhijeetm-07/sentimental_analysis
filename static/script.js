@@ -1,5 +1,7 @@
 /**
  * EmotionAI — Frontend Logic
+ * Connects to FastAPI backend (/health and /predict)
+ * Matches the complete HTML structure and neutral zinc dark palette.
  */
 
 const API_BASE_URL =
@@ -7,187 +9,338 @@ const API_BASE_URL =
     ? window.location.origin
     : "http://127.0.0.1:8000";
 
-const EMOJIS = { sadness:"😢", joy:"😄", love:"❤️", anger:"😠", fear:"😨", surprise:"😲" };
-const BAR_COLORS = { sadness:"var(--c-sadness)", joy:"var(--c-joy)", love:"var(--c-love)", anger:"var(--c-anger)", fear:"var(--c-fear)", surprise:"var(--c-surprise)" };
-
-const SAMPLES = {
-  joy:      "After months of hard work, I finally got the job I had been dreaming about.",
-  sadness:  "I tried to stay positive, but losing someone I cared about has left me feeling empty.",
-  anger:    "I spent hours preparing everything, and they cancelled the meeting without even telling me.",
-  fear:     "My heart started racing when I heard footsteps following me in the empty street.",
-  surprise: "I opened the box expecting something ordinary, but I couldn't believe what was inside.",
-  love:     "Even on my worst days, being around her makes me feel understood and cared for."
+const EMOJIS = {
+  sadness: "😢",
+  joy: "😄",
+  love: "❤️",
+  anger: "😠",
+  fear: "😨",
+  surprise: "😲"
 };
 
-let busy = false;
+const EMOTION_COLORS = {
+  sadness: "var(--color-sadness)",
+  joy: "var(--color-joy)",
+  love: "var(--color-love)",
+  anger: "var(--color-anger)",
+  fear: "var(--color-fear)",
+  surprise: "var(--color-surprise)"
+};
+
+const SAMPLE_TEXTS = {
+  joy: "After months of hard work, I finally achieved something I had been dreaming about for years!",
+  sadness: "I tried my best to keep everything together, but losing what mattered most has left me feeling empty.",
+  love: "Even on the hardest days, having people who understand and care for you makes everything worthwhile.",
+  anger: "I spent weeks preparing the report and they discarded it entirely without even reviewing the findings.",
+  fear: "Walking down that unlit alley late at night, every sudden sound sent a chill straight down my spine.",
+  surprise: "I opened the plain cardboard parcel expecting spare parts, but inside was an unexpected gift."
+};
+
+let isAnalyzing = false;
 
 document.addEventListener("DOMContentLoaded", () => {
-  const $ = (s) => document.querySelector(s);
-  const $$ = (s) => document.querySelectorAll(s);
+  // DOM Elements
+  const textInput          = document.getElementById("textInput");
+  const charCounter        = document.getElementById("charCounter");
+  const inlineValidation   = document.getElementById("inlineValidation");
+  const clearBtn           = document.getElementById("clearBtn");
+  const analyzeBtn         = document.getElementById("analyzeBtn");
+  const examplePills       = document.querySelectorAll(".example-pill");
 
-  const textInput       = $("#textInput");
-  const charCount       = $("#charCount");
-  const validation      = $("#validationMsg");
-  const analyzeBtn      = $("#analyzeBtn");
-  const clearBtn        = $("#clearBtn");
-  const errorCard       = $("#errorCard");
-  const errorTitle      = $("#errorTitle");
-  const errorDesc       = $("#errorDesc");
-  const dismissError    = $("#dismissError");
-  const resultsSection  = $("#resultsSection");
-  const resultEmoji     = $("#resultEmoji");
-  const resultName      = $("#resultEmotionName");
-  const resultConf      = $("#resultConfidence");
-  const probList        = $("#probabilitiesList");
-  const interpText      = $("#interpretationText");
-  const recapText       = $("#recapText");
-  const statusDot       = $("#statusDot");
-  const statusText      = $("#statusText");
+  const healthBadge        = document.getElementById("healthBadge");
+  const statusDot          = document.getElementById("statusDot");
+  const statusText         = document.getElementById("statusText");
 
-  // ---- Health ----
-  async function checkHealth() {
+  const errorCard          = document.getElementById("errorCard");
+  const errorMessage       = document.getElementById("errorMessage");
+  const dismissErrorBtn    = document.getElementById("dismissErrorBtn");
+
+  const resultsSection     = document.getElementById("resultsSection");
+  const predictionHighlight= document.getElementById("predictionHighlight");
+  const resultEmoji        = document.getElementById("resultEmoji");
+  const resultEmotionName  = document.getElementById("resultEmotionName");
+  const resultConfidence   = document.getElementById("resultConfidence");
+  const probabilitiesList  = document.getElementById("probabilitiesList");
+  const interpretationCard = document.getElementById("interpretationCard");
+  const interpretationText = document.getElementById("interpretationText");
+  const recapText          = document.getElementById("recapText");
+
+  // ==========================================
+  // 1. Health Status Polling
+  // ==========================================
+  async function checkServerHealth() {
     try {
-      const r = await fetch(`${API_BASE_URL}/health`);
-      if (!r.ok) throw new Error(r.status);
-      const d = await r.json();
-      setStatus(d.model_loaded ? "online" : "offline", d.model_loaded ? "Online" : "Model offline");
-    } catch {
-      setStatus("warn", "Unreachable");
+      const response = await fetch(`${API_BASE_URL}/health`, {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Status ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.model_loaded) {
+        setHealthStatus("status-online", "Online");
+      } else {
+        setHealthStatus("status-warning", "Model Loading");
+      }
+    } catch (err) {
+      setHealthStatus("status-offline", "Offline");
     }
   }
 
-  function setStatus(state, label) {
-    statusDot.className = "status-dot " + state;
+  function setHealthStatus(statusClass, label) {
+    if (!statusDot || !statusText) return;
+    statusDot.className = `status-dot ${statusClass}`;
     statusText.textContent = label;
   }
 
-  checkHealth();
-  setInterval(checkHealth, 30000);
+  // Initial check and periodic polling
+  checkServerHealth();
+  setInterval(checkServerHealth, 30000);
 
-  // ---- Input ----
-  textInput.addEventListener("input", () => {
-    charCount.textContent = `${textInput.value.length} / 2000`;
+  // ==========================================
+  // 2. Input Handling & Character Counter
+  // ==========================================
+  function updateCharCounter() {
+    const length = textInput.value.length;
+    charCounter.textContent = `${length} / 2000`;
+
+    // Auto-adjust textarea height up to 320px
     textInput.style.height = "auto";
-    textInput.style.height = Math.min(textInput.scrollHeight, 320) + "px";
-    if (textInput.value.length) hideValidation();
-  });
+    textInput.style.height = `${Math.min(textInput.scrollHeight, 320)}px`;
 
+    if (length > 0) {
+      clearValidation();
+    }
+  }
+
+  textInput.addEventListener("input", updateCharCounter);
+
+  // Keyboard shortcut: Ctrl+Enter or Cmd+Enter to analyze
   textInput.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); analyze(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      handleAnalyze();
+    }
   });
 
+  // Clear button
   clearBtn.addEventListener("click", () => {
     textInput.value = "";
-    charCount.textContent = "0 / 2000";
+    charCounter.textContent = "0 / 2000";
     textInput.style.height = "auto";
-    hideValidation(); hideError();
+    clearValidation();
+    hideError();
     textInput.focus();
   });
 
-  $$(".pill").forEach((p) =>
-    p.addEventListener("click", () => {
-      const emo = p.dataset.emotion;
-      if (SAMPLES[emo]) {
-        textInput.value = SAMPLES[emo];
-        textInput.dispatchEvent(new Event("input"));
-        hideValidation(); hideError();
+  // Example pills
+  examplePills.forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const emotion = pill.getAttribute("data-emotion");
+      if (SAMPLE_TEXTS[emotion]) {
+        textInput.value = SAMPLE_TEXTS[emotion];
+        updateCharCounter();
+        clearValidation();
+        hideError();
         textInput.focus();
       }
-    })
-  );
+    });
+  });
 
-  analyzeBtn.addEventListener("click", analyze);
-  dismissError.addEventListener("click", hideError);
-
-  function showValidation(msg) { validation.textContent = msg; validation.classList.add("show"); textInput.focus(); }
-  function hideValidation()    { validation.textContent = ""; validation.classList.remove("show"); }
-  function hideError()         { errorCard.style.display = "none"; }
-
-  function showError(title, desc) {
-    errorTitle.textContent = title || "Unable to analyze.";
-    errorDesc.textContent  = desc  || "Make sure the FastAPI server is running.";
-    errorCard.style.display = "flex";
+  // ==========================================
+  // 3. Error and Validation Helpers
+  // ==========================================
+  function showValidation(msg) {
+    inlineValidation.textContent = msg;
+    inlineValidation.classList.add("active");
+    textInput.focus();
   }
 
-  // ---- Analyze ----
-  async function analyze() {
-    if (busy) return;
-    const text = textInput.value.trim();
-    if (!text) { showValidation("Enter some text first."); return; }
+  function clearValidation() {
+    inlineValidation.textContent = "";
+    inlineValidation.classList.remove("active");
+  }
 
-    busy = true;
-    analyzeBtn.disabled = true;
-    analyzeBtn.classList.add("loading");
+  function showError(message) {
+    if (errorMessage) {
+      errorMessage.textContent = message || "Make sure the FastAPI server is running on http://127.0.0.1:8000.";
+    }
+    if (errorCard) {
+      errorCard.style.display = "flex";
+      errorCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }
+
+  function hideError() {
+    if (errorCard) {
+      errorCard.style.display = "none";
+    }
+  }
+
+  if (dismissErrorBtn) {
+    dismissErrorBtn.addEventListener("click", hideError);
+  }
+
+  // ==========================================
+  // 4. Prediction Execution
+  // ==========================================
+  analyzeBtn.addEventListener("click", handleAnalyze);
+
+  async function handleAnalyze() {
+    if (isAnalyzing) return;
+
+    const text = textInput.value.trim();
+    if (!text) {
+      showValidation("Please enter a sentence to analyze.");
+      return;
+    }
+
+    clearValidation();
     hideError();
+    setLoadingState(true);
 
     try {
-      const r = await fetch(`${API_BASE_URL}/predict`, {
+      const response = await fetch(`${API_BASE_URL}/predict`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
         body: JSON.stringify({ text })
       });
 
-      if (!r.ok) {
-        let msg = `Server error (${r.status})`;
-        try { const e = await r.json(); if (e.detail) msg = e.detail; } catch {}
-        throw new Error(msg);
+      if (!response.ok) {
+        let errorMsg = `Server error (${response.status})`;
+        try {
+          const errData = await response.json();
+          if (errData.detail) errorMsg = errData.detail;
+        } catch (_) {}
+        throw new Error(errorMsg);
       }
 
-      const data = await r.json();
-      showResult(data);
+      const result = await response.json();
+      displayResults(result, text);
     } catch (err) {
-      console.error("[EmotionAI]", err);
-      showError(err.message, "The model may still be loading. Try again shortly.");
+      console.error("[EmotionAI Error]:", err);
+      showError(err.message || "Failed to communicate with FastAPI backend.");
     } finally {
-      busy = false;
-      analyzeBtn.disabled = false;
+      setLoadingState(false);
+    }
+  }
+
+  function setLoadingState(loading) {
+    isAnalyzing = loading;
+    analyzeBtn.disabled = loading;
+    if (loading) {
+      analyzeBtn.classList.add("loading");
+    } else {
       analyzeBtn.classList.remove("loading");
     }
   }
 
-  // ---- Results ----
-  function showResult(data) {
-    const emo   = (data.predicted_emotion || "").toLowerCase();
-    const conf  = data.confidence || 0;
-    const probs = data.all_probabilites || {};
+  // ==========================================
+  // 5. Render Results
+  // ==========================================
+  function displayResults(data, inputText) {
+    const rawEmotion = (data.predicted_emotion || "").toLowerCase();
+    const confidenceVal = typeof data.confidence === "number" ? data.confidence : 0;
+    const confidencePct = (confidenceVal * 100).toFixed(1);
+    const probabilities = data.all_probabilites || data.all_probabilities || {};
 
-    resultEmoji.textContent = EMOJIS[emo] || "🎭";
-    resultName.textContent  = emo.toUpperCase();
-    animateCounter(resultConf, conf * 100, "%");
+    const emotionColor = EMOTION_COLORS[rawEmotion] || "var(--accent-dim)";
+    const emoji = EMOJIS[rawEmotion] || "🎭";
 
-    // Probabilities sorted descending
-    probList.innerHTML = "";
-    const sorted = Object.keys(probs).sort((a, b) => probs[b] - probs[a]);
-    sorted.forEach((e) => {
-      const pct = (probs[e] * 100).toFixed(1);
-      const row = document.createElement("div");
-      row.className = "prob-row";
-      row.innerHTML = `
-        <span class="prob-label">${e}</span>
-        <div class="prob-track"><div class="prob-bar" data-pct="${pct}" style="background:${BAR_COLORS[e] || "var(--text-3)"}"></div></div>
-        <span class="prob-val">${pct}%</span>`;
-      probList.appendChild(row);
-    });
+    // Update Highlight card
+    if (resultEmoji) resultEmoji.textContent = emoji;
+    if (resultEmotionName) {
+      resultEmotionName.textContent = rawEmotion.toUpperCase();
+    }
+    if (predictionHighlight) {
+      predictionHighlight.style.setProperty("--highlight-accent", emotionColor);
+    }
 
-    requestAnimationFrame(() => {
-      probList.querySelectorAll(".prob-bar").forEach((b) => { b.style.width = b.dataset.pct + "%"; });
-    });
+    // Animate confidence number
+    if (resultConfidence) {
+      animateCounter(resultConfidence, confidenceVal * 100, "%");
+    }
 
-    interpText.textContent = `The model predicts ${emo.toUpperCase()} as the dominant emotion with ${(conf * 100).toFixed(1)} % confidence.`;
-    recapText.textContent  = `"${data.text || textInput.value}"`;
+    // Render Probability Distribution
+    if (probabilitiesList) {
+      probabilitiesList.innerHTML = "";
+      const sortedKeys = Object.keys(probabilities).sort(
+        (a, b) => (probabilities[b] || 0) - (probabilities[a] || 0)
+      );
 
-    resultsSection.style.display = "block";
-    resultsSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      sortedKeys.forEach((key) => {
+        const val = probabilities[key] || 0;
+        const pct = (val * 100).toFixed(1);
+        const rowColor = EMOTION_COLORS[key.toLowerCase()] || "var(--accent-dim)";
+        const rowEmoji = EMOJIS[key.toLowerCase()] || "•";
+
+        const row = document.createElement("div");
+        row.className = "prob-row";
+        row.innerHTML = `
+          <span class="prob-label"><span>${rowEmoji}</span> ${key}</span>
+          <div class="prob-track">
+            <div class="prob-bar" data-pct="${pct}" style="--bar-color: ${rowColor}; width: 0%;"></div>
+          </div>
+          <span class="prob-value">${pct}%</span>
+        `;
+        probabilitiesList.appendChild(row);
+      });
+
+      // Smoothly expand bars
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          probabilitiesList.querySelectorAll(".prob-bar").forEach((bar) => {
+            bar.style.width = `${bar.dataset.pct}%`;
+          });
+        }, 50);
+      });
+    }
+
+    // Interpretation text
+    if (interpretationText) {
+      const dominantPct = confidencePct;
+      let note = "";
+      if (confidenceVal >= 0.8) {
+        note = `Strong positive identification. The Bidirectional GRU network detected unambiguous semantic and contextual indicators characteristic of ${rawEmotion}.`;
+      } else if (confidenceVal >= 0.5) {
+        note = `Moderate confidence. The BiGRU synthesized context across both directions, identifying ${rawEmotion} as the most probable emotional tone with subtle secondary nuances.`;
+      } else {
+        note = `Mixed emotional sentiment. The model identifies ${rawEmotion} as primary, though the sequence contains overlapping emotional cues.`;
+      }
+      interpretationText.textContent = `The model classified this sentence as "${rawEmotion.toUpperCase()}" with ${dominantPct}% confidence. ${note}`;
+    }
+
+    // Input text recap
+    if (recapText) {
+      recapText.textContent = `"${data.text || inputText}"`;
+    }
+
+    // Make results visible and smoothly scroll to them
+    if (resultsSection) {
+      resultsSection.style.display = "block";
+      resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
-  function animateCounter(el, target, suffix) {
+  // Helper for numeric counter ease-out animation
+  function animateCounter(element, target, suffix = "%") {
     const start = performance.now();
-    const dur = 600;
-    (function tick(now) {
-      const p = Math.min((now - start) / dur, 1);
-      const ease = 1 - Math.pow(1 - p, 3);
-      el.textContent = (ease * target).toFixed(1) + " " + suffix;
-      if (p < 1) requestAnimationFrame(tick);
+    const duration = 650;
+    (function frame(currentTime) {
+      const elapsed = currentTime - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+      const currentVal = (easeOut * target).toFixed(1);
+      element.textContent = `${currentVal}${suffix}`;
+      if (progress < 1) {
+        requestAnimationFrame(frame);
+      }
     })(start);
   }
 });
